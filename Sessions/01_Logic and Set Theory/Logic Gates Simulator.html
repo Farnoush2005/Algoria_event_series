@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="fa">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Logic gate simulator</title>
+<style>
+  body{font-family:Tahoma, Arial; background:#0f1724; color:#e6eef8; margin:0; overflow:hidden}
+  #toolbar{position:fixed; left:10px; top:10px; background:rgba(255,255,255,0.04); padding:8px; border-radius:8px;}
+  button{margin:4px; padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit; cursor:pointer}
+  button:hover{background:rgba(255,255,255,0.08)}
+  #canvas{display:block}
+  .label{font-size:12px; color:#9fb4d9}
+  .small{font-size:11px; color:#9fb4d9}
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <div class="label">Add a gate:</div>
+  <button onclick="addGate('AND')">AND</button>
+  <button onclick="addGate('OR')">OR</button>
+  <button onclick="addGate('NOT')">NOT</button>
+  <button onclick="addGate('XOR')">XOR</button>
+  <button onclick="addGate('NAND')">NAND</button>
+  <button onclick="addGate('NOR')">NOR</button>
+  <button onclick="addInput()">Input</button>
+  <button onclick="clearAll()">Erase</button>
+  <div class="small">Click on the input to make it 0/1. Drag to move.</div>
+</div>
+<canvas id="canvas"></canvas>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let W=window.innerWidth, H=window.innerHeight;
+canvas.width = W; canvas.height=H;
+
+window.addEventListener('resize', ()=>{W=window.innerWidth; H=window.innerHeight; canvas.width=W; canvas.height=H; draw();});
+
+let nodes = []; 
+let wires = []; 
+let nextId = 1;
+let drag = null;
+let hover = null;
+let connectFrom = null;
+
+const radius = 26;
+
+function addGate(type){
+  nodes.push({
+    id: nextId++,
+    kind: 'gate',
+    type: type,
+    x: 140 + Math.random()*600,
+    y: 120 + Math.random()*300,
+    inputs: type==='NOT' ? [false] : [false,false],
+    output: false
+  });
+  draw();
+}
+
+function addInput(){
+  nodes.push({
+    id: nextId++,
+    kind: 'input',
+    x: 80 + Math.random()*400,
+    y: 80 + Math.random()*300,
+    value: false
+  });
+  draw();
+}
+
+function clearAll(){
+  nodes=[]; wires=[]; nextId=1; draw();
+}
+
+function gateEval(type, inputs){
+  const a = inputs[0]||false;
+  const b = inputs[1]||false;
+  switch(type){
+    case 'AND': return a && b;
+    case 'OR': return a || b;
+    case 'NOT': return !a;
+    case 'XOR': return (!!a) ^ (!!b);
+    case 'NAND': return !(a && b);
+    case 'NOR': return !(a || b);
+    default: return false;
+  }
+}
+
+function evalAll(){
+  for(let i=0;i<20;i++){
+    let changed=false;
+    for(const node of nodes){
+      if(node.kind==='gate'){
+        let inVals = node.inputs.map(()=>false);
+        for(const w of wires){
+          if(w.to===node.id){
+            const fromNode = nodes.find(n=>n.id===w.from);
+            let val=false;
+            if(fromNode){
+              if(fromNode.kind==='input') val = !!fromNode.value;
+              if(fromNode.kind==='gate') val = !!fromNode.output;
+            }
+            inVals[w.toPin] = val;
+          }
+        }
+        const out = gateEval(node.type, inVals);
+        if(out !== node.output){ node.output = out; changed=true;}
+        node.inputs = inVals.slice(0, node.inputs.length);
+      }
+    }
+    if(!changed) break;
+  }
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const g = ctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,'#071029'); g.addColorStop(1,'#081426');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  evalAll();
+
+  for(const w of wires){
+    const a = nodes.find(n=>n.id===w.from);
+    const b = nodes.find(n=>n.id===w.to);
+    if(!a||!b) continue;
+    const fromPos = getPinPos(a, w.fromPin, true);
+    const toPos = getPinPos(b, w.toPin, false);
+    drawWire(fromPos, toPos, a.kind==='input' ? a.value : (a.output||false));
+  }
+
+  for(const node of nodes){
+    if(node.kind==='input') drawInput(node);
+    else drawGate(node);
+  }
+
+  if(hover){
+    ctx.beginPath();
+    ctx.arc(hover.x, hover.y, radius+6,0,Math.PI*2);
+    ctx.strokeStyle = 'rgba(160,200,255,0.12)'; ctx.lineWidth=6; ctx.stroke();
+  }
+
+  if(connectFrom){
+    const fromNode = nodes.find(n=>n.id===connectFrom.node);
+    if(fromNode){
+      const p = getPinPos(fromNode, connectFrom.pin, true);
+      const m = mouse;
+      drawWire(p, m, fromNode.kind==='input' ? fromNode.value : (fromNode.output||false), true);
+    }
+  }
+}
+
+function drawWire(a, b, on=false, temp=false){
+  const midx = (a.x+b.x)/2; const midy=(a.y+b.y)/2;
+  ctx.beginPath();
+  ctx.moveTo(a.x,a.y);
+  ctx.bezierCurveTo(midx,a.y, midx,b.y, b.x,b.y);
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = on ? 'rgba(130,230,170,0.95)' : 'rgba(150,170,200,0.4)';
+  if(temp) ctx.setLineDash([8,8]); else ctx.setLineDash([]);
+  ctx.shadowColor = on ? 'rgba(130,230,170,0.35)' : 'transparent';
+  ctx.shadowBlur = on ? 12 : 0;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+function drawInput(node){
+  ctx.beginPath();
+  ctx.arc(node.x,node.y, radius,0,Math.PI*2);
+  ctx.fillStyle = node.value ? 'rgba(110,230,140,0.12)' : 'rgba(255,255,255,0.02)';
+  ctx.fill();
+  ctx.lineWidth=2; ctx.strokeStyle = node.value ? '#7ee08f' : '#3b556f'; ctx.stroke();
+  ctx.fillStyle = node.value ? '#b8ffd0' : '#cfe3ff';
+  ctx.font='18px Tahoma'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(node.value? '1':'0', node.x, node.y);
+  ctx.beginPath(); ctx.arc(node.x+radius+12, node.y, 6,0,Math.PI*2);
+  ctx.fillStyle = '#98b6d9'; ctx.fill();
+}
+
+function drawGate(node){
+  const w=110, h=68;
+  ctx.save(); ctx.translate(node.x - w/2, node.y - h/2);
+  ctx.beginPath();
+  roundRect(ctx,0,0,w,h,12);
+  ctx.fillStyle = 'rgba(255,255,255,0.02)'; ctx.fill();
+  ctx.strokeStyle = '#2c4a67'; ctx.lineWidth=2; ctx.stroke();
+
+  ctx.fillStyle = '#d9eefc'; ctx.font='bold 14px Tahoma'; ctx.textAlign='center';
+  ctx.fillText(node.type, w/2, 24);
+
+  const pins = node.type==='NOT' ? 1 : 2;
+  for(let i=0;i<pins;i++){
+    const py = 35 + (i-(pins-1)/2)*18;
+    ctx.beginPath(); ctx.arc(8, py, 6,0,Math.PI*2);
+    ctx.fillStyle = node.inputs[i] ? '#7ee08f' : '#3b556f';
+    ctx.fill();
+  }
+  ctx.beginPath(); ctx.arc(w-8, h/2, 8,0,Math.PI*2);
+  ctx.fillStyle = node.output ? '#7ee08f' : '#3b556f';
+  ctx.fill();
+  ctx.restore();
+}
+
+function roundRect(ctx,x,y,w,h,r){
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+}
+
+function getPinPos(node, pinIndex, fromSide){
+  if(node.kind==='input'){
+    return {x: node.x + (fromSide? radius+12 : -radius-12), y: node.y};
+  } else {
+    const w=110, h=68;
+    const pins = node.type==='NOT' ? 1 : 2;
+    if(fromSide){
+      return {x: node.x + w/2, y: node.y};
+    } else {
+      const py = node.y + (pinIndex - (pins-1)/2)*18;
+      return {x: node.x - w/2, y: py};
+    }
+  }
+}
+
+const mouse = {x:0,y:0,down:false};
+canvas.addEventListener('mousemove', (e)=>{ const rect=canvas.getBoundingClientRect(); mouse.x=e.clientX-rect.left; mouse.y=e.clientY-rect.top; onMove();});
+canvas.addEventListener('mousedown', (e)=>{ mouse.down=true; onDown(e);});
+canvas.addEventListener('mouseup', (e)=>{ mouse.down=false; onUp(e);});
+canvas.addEventListener('dblclick', (e)=>{ onDoubleClick(e); });
+
+function hitTestNode(mx,my){
+  for(let i=nodes.length-1;i>=0;i--){
+    const n=nodes[i];
+    if(n.kind==='input'){
+      const dx=mx-n.x, dy=my-n.y;
+      if(Math.hypot(dx,dy) <= radius) return {node:n, part:'body'};
+      const cx = n.x+radius+12, cy=n.y;
+      if(Math.hypot(mx-cx,my-cy)<=8) return {node:n, part:'out'};
+    } else {
+      const w=110,h=68;
+      if(mx >= n.x-w/2 && mx <= n.x+w/2 && my >= n.y-h/2 && my <= n.y+h/2){
+        const pins = n.type==='NOT'?1:2;
+        for(let i=0;i<pins;i++){
+          const pinY = n.y + (i-(pins-1)/2)*18;
+          if(Math.hypot(mx - (n.x - w/2), my - pinY) <= 10) return {node:n, part:'in', pin:i};
+        }
+        if(Math.hypot(mx - (n.x + w/2), my - n.y) <= 12) return {node:n, part:'out', pin:0};
+        return {node:n, part:'body'};
+      }
+    }
+  }
+  return null;
+}
+
+function onMove(){
+  hover = null;
+  const h = hitTestNode(mouse.x, mouse.y);
+  if(h) hover = {x: h.node.x, y: h.node.y};
+  if(drag && mouse.down){
+    drag.node.x = mouse.x - drag.offsetX;
+    drag.node.y = mouse.y - drag.offsetY;
+    draw();
+  } else {
+    draw();
+  }
+}
+
+function onDown(e){
+  const h = hitTestNode(mouse.x, mouse.y);
+  if(!h) return;
+  if(h.part==='body'){
+    drag = {node: h.node, offsetX: mouse.x - h.node.x, offsetY: mouse.y - h.node.y};
+  } else if(h.part==='out'){
+    connectFrom = {node: h.node.id, pin: 0};
+  } else if(h.part==='in'){
+    if(connectFrom){
+      wires.push({from: connectFrom.node, fromPin: 0, to: h.node.id, toPin: h.pin});
+      connectFrom = null; draw();
+    }
+  }
+}
+
+function onUp(e){
+  if(drag) drag=null;
+  const h = hitTestNode(mouse.x, mouse.y);
+  if(h && h.node.kind==='input' && h.part==='body'){
+    h.node.value = !h.node.value;
+    draw();
+  }
+  if(connectFrom && (!h || h.part !== 'in')){ connectFrom = null; draw(); }
+}
+
+function onDoubleClick(e){
+  const h = hitTestNode(mouse.x, mouse.y);
+  if(h && h.node.kind==='gate' && h.part==='body'){
+    nodes = nodes.filter(n=>n.id !== h.node.id);
+    wires = wires.filter(w=> w.from !== h.node.id && w.to !== h.node.id);
+    draw();
+  }
+}
+
+canvas.addEventListener('contextmenu', (ev)=>{ ev.preventDefault();
+  for(let i=0;i<wires.length;i++){
+    const w=wires[i]; const a = getPinPos(nodes.find(n=>n.id===w.from),0,true); const b = getPinPos(nodes.find(n=>n.id===w.to),w.toPin,false);
+    const d = distPointToCurve({x:mouse.x,y:mouse.y}, a, b);
+    if(d<8){ wires.splice(i,1); draw(); return; }
+  }
+});
+
+function distPointToCurve(p,a,b){
+  const mid = {x:(a.x+b.x)/2, y:(a.y+b.y)/2};
+  let best=1e9;
+  for(let t=0;t<=1;t+=0.02){
+    const cx = (a.x*(1-t)*(1-t)*(1-t) + 3*((a.x*(1-t)*(1-t)*t)) + 3*(( (a.x+b.x)/2)*(1-t)*t*t) + b.x*t*t*t);
+    const cy = (a.y*(1-t)*(1-t)*(1-t) + 3*( (a.y)*(1-t)*(1-t)*t) + 3*((b.y)*(1-t)*t*t) + b.y*t*t*t);
+    const dd = Math.hypot(p.x-cx, p.y-cy);
+    if(dd<best) best=dd;
+  }
+  return best;
+}
+
+addInput(); addInput();
+addGate('AND'); addGate('NOT');
+nodes[0].x=120; nodes[0].y=140; nodes[1].x=120; nodes[1].y=260;
+nodes[2].x=360; nodes[2].y=180; nodes[3].x=560; nodes[3].y=180;
+wires.push({from: nodes[0].id, fromPin:0, to: nodes[2].id, toPin:0});
+wires.push({from: nodes[1].id, fromPin:0, to: nodes[2].id, toPin:1});
+wires.push({from: nodes[2].id, fromPin:0, to: nodes[3].id, toPin:0});
+draw();
+</script>
+</body>
+</html>
