@@ -44,4 +44,4 @@ This directory contains two interactive and hands-on projects developed for this
 ---
 
 ## 📄 Presentation Slides
-* [Download Session 01 Presentation Slides (PDF)](slides/session-01-slides.pdf) *(Place your PDF file inside the `slides/` folder)*
+* [Download Session 01 Slides (PDF)](Slides.pdf)
